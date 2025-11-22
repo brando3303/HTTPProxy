@@ -66,36 +66,86 @@ def server(port):
             print("Server stopped")
 
 def worker(client_socket, client_address):
-    packet = b""
+    try :
+        packet_buf = b""
 
-    # first just get the header
-    while packet.find(b"\r\n\r\n") == -1:
-         packet += client_socket.recv(1024)
+        # first just get the header
+        while packet_buf.find(b"\r\n\r\n") == -1:
+            packet_buf += client_socket.recv(1024)
 
-    # process header TODO: allow other line endings
-    raw_header = packet.split(b"\r\n\r\n")[0]
-    header = http_parser.HTTPHeader(raw_header.decode())
-    data = header.generate_header()
-    
-    # Create TCP socket to destination server
-    dest_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    with sockets_lock:
-        sockets.append(dest_socket)
+        # process header TODO: allow other line endings
+        raw_header = packet_buf.split(b"\r\n\r\n")[0]
+        packet_buf = packet_buf.split(b"\r\n\r\n",1)[1]
+        header = http_parser.HTTPHeader(raw_header.decode())
+        header.set_header("Connection", "close")
+        header.set_version("HTTP/1.0")
+        
+        # Create TCP socket to destination server
+        dest_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        with sockets_lock:
+            sockets.append(dest_socket)
 
-    if header.get_header("Connection") == "keep-alive":
-        process_connection_request(client_socket, dest_socket)
-    else:
-        process_non_connection_request(client_socket, dest_socket, header, packet)
+        if header.get_method() == "CONNECT":
+            pass
+            #process_connection_request(client_socket, dest_socket, header, packet_buf)
+        else:
+            process_non_connection_request(client_socket, dest_socket, header, packet_buf)
+
+        return
+    except KeyboardInterrupt:
+        if DEBUG:
+            print("\nKeyboard interrupt received. Stopping worker...")
+        return
+
+
+
+def process_connection_request(client_socket, dest_socket, header, packet_buf):
+    dest  = header.get_header("Host")
+    print(header.generate_header())
+
+    try:
+        if ':' in dest:
+            host, port = dest.split(':')
+            port = int(port)
+        else:
+            host = dest
+            port = 80
+        
+        if DEBUG:
+            print(f"Connecting to {host}:{port}")
+        
+        dest_socket.connect((host, port))
+        dest_socket.settimeout(5)
+        client_socket.settimeout(5)
+
+        #send what we have so far, continue sending rest of packet if any
+        dest_socket.send(header.generate_header().encode() + packet_buf)
+        while True:
+            data = client_socket.recv(4096)
+            if not data:
+                break
+            dest_socket.send(data)
+        
+        # Now receive response from destination and send back to client
+        while True:
+            response = dest_socket.recv(4096)
+            if not response:
+                break
+            client_socket.send(response)
+        
+
+    except Exception as e:
+        if DEBUG:
+            print(f"Error connecting to {dest}: {e}")
+    finally:
+        dest_socket.close()
+        client_socket.close()
 
     return
 
-
-
-def process_connection_request(client_socket, dest_socket):
-    pass
-
-def process_non_connection_request(client_socket, dest_socket, header, packet):
+def process_non_connection_request(client_socket, dest_socket, header, packet_buf):
     dest = header.get_header("Host")
+    print(header.generate_header())
 
     try:
         # Parse host and port (default to 80 if not specified)
@@ -110,9 +160,63 @@ def process_non_connection_request(client_socket, dest_socket, header, packet):
             print(f"Connecting to {host}:{port}")
         
         dest_socket.connect((host, port))
+        dest_socket.settimeout(5)
+        client_socket.settimeout(5)
         
         # TODO: Forward request to destination server
-        dest_socket.send(packet)
+
+        #send what we have so far, continue sending rest of packet if any
+        dest_socket.send(header.generate_header().encode() + packet_buf)
+        print(f"sending header to dest {repr(header.generate_header().encode())}, packet_buf length {len(packet_buf)}")
+        if header.get_header("Content-Length") or header.get_header("Transfer-Encoding"):
+            client_payload = b""
+            while client_payload.find(b"\r\n\r\n") == -1:
+                print("getting payload from client")
+                try:
+                    data = client_socket.recv(4096)
+                except socket.timeout:
+                    break
+                if not data:
+                    break
+                print(f"received data of length {len(data)}")
+                dest_socket.send(data)
+        
+        # Now receive response from destination and send back to client
+        resp_buf = b""
+        while resp_buf.find(b"\r\n\r\n") == -1:
+            print("getting header from dest")
+            try:
+                response = dest_socket.recv(4096)
+            except socket.timeout:
+                print("timeout")
+                break
+            if not response:
+                print("no response")
+                break
+            print(f"received data of length {len(response)} {response.decode()}")
+            resp_buf += response
+        print("got header from dest")
+        raw_header = resp_buf.split(b"\r\n\r\n")[0]
+        print(raw_header.decode())
+        resp_header = http_parser.HTTPHeader(raw_header.decode())
+        resp_header.set_version("HTTP/1.0")
+        client_socket.send(resp_header.generate_header().encode())
+        print(f"sending header to client {resp_header.generate_header()}")
+        # check if weve already accepted the entire payload
+        if resp_header.get_header("Content-Length") or resp_header.get_header("Transfer-Encoding"):
+            client_socket.send(resp_buf.split(b"\r\n\r\n",1)[1])
+            while True:
+                print("getting payload from dest")
+                try:
+                    response = dest_socket.recv(4096)
+                except socket.timeout:
+                    break
+                if not response:
+                    break
+                print(f"received data of length {len(response)}")
+                client_socket.send(response)
+
+
 
         
     except Exception as e:

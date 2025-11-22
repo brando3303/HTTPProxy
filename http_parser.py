@@ -249,7 +249,7 @@ class HTTPHeader:
         if self.body:
             lines.append(self.body)
         
-        return '\r\n'.join(lines)
+        return '\r\n'.join(lines) + '\r\n' # check??
     
     def __str__(self) -> str:
         """String representation of the HTTP header."""
