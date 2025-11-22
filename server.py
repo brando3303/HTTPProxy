@@ -13,6 +13,8 @@ DEBUG = True
 MIN_PORT = 1024
 MAX_PORT = 65535
 
+BUF_SIZE = 1024
+
 # Global list of sockets for cleanup
 sockets = []
 sockets_lock = threading.Lock()
@@ -71,7 +73,7 @@ def worker(client_socket, client_address):
 
         # first just get the header
         while packet_buf.find(b"\r\n\r\n") == -1:
-            packet_buf += client_socket.recv(1024)
+            packet_buf += client_socket.recv(BUF_SIZE)
 
         # process header TODO: allow other line endings
         raw_header = packet_buf.split(b"\r\n\r\n")[0]
@@ -121,14 +123,14 @@ def process_connection_request(client_socket, dest_socket, header, packet_buf):
         #send what we have so far, continue sending rest of packet if any
         dest_socket.send(header.generate_header().encode() + packet_buf)
         while True:
-            data = client_socket.recv(4096)
+            data = client_socket.recv(BUF_SIZE)
             if not data:
                 break
             dest_socket.send(data)
         
         # Now receive response from destination and send back to client
         while True:
-            response = dest_socket.recv(4096)
+            response = dest_socket.recv(BUF_SIZE)
             if not response:
                 break
             client_socket.send(response)
@@ -173,7 +175,7 @@ def process_non_connection_request(client_socket, dest_socket, header, packet_bu
             while client_payload.find(b"\r\n\r\n") == -1:
                 print("getting payload from client")
                 try:
-                    data = client_socket.recv(4096)
+                    data = client_socket.recv(BUF_SIZE)
                 except socket.timeout:
                     break
                 if not data:
@@ -186,35 +188,42 @@ def process_non_connection_request(client_socket, dest_socket, header, packet_bu
         while resp_buf.find(b"\r\n\r\n") == -1:
             print("getting header from dest")
             try:
-                response = dest_socket.recv(4096)
+                response = dest_socket.recv(BUF_SIZE)
             except socket.timeout:
                 print("timeout")
                 break
             if not response:
                 print("no response")
                 break
-            print(f"received data of length {len(response)} {response.decode()}")
+            print(f"received data of length {len(response)}")
             resp_buf += response
-        print("got header from dest")
+        
+        # process client header
         raw_header = resp_buf.split(b"\r\n\r\n")[0]
-        print(raw_header.decode())
+        resp_buf = resp_buf.split(b"\r\n\r\n",1)[1]
         resp_header = http_parser.HTTPHeader(raw_header.decode())
         resp_header.set_version("HTTP/1.0")
-        client_socket.send(resp_header.generate_header().encode())
         print(f"sending header to client {resp_header.generate_header()}")
-        # check if weve already accepted the entire payload
-        if resp_header.get_header("Content-Length") or resp_header.get_header("Transfer-Encoding"):
-            client_socket.send(resp_buf.split(b"\r\n\r\n",1)[1])
+
+        # send header + initial recieved payload to client
+        client_socket.send(resp_header.generate_header().encode())
+        client_socket.send(resp_buf)
+        print(f"sending payload to client {len(resp_buf)} bytes out of {content_length if content_length else 'unknown'}")
+
+        # continue sending rest of payload if any
+        content_length = resp_header.get_header("Content-Length")
+        if content_length and len(resp_buf) < int(content_length) or resp_header.get_header("Transfer-Encoding"):
             while True:
                 print("getting payload from dest")
                 try:
-                    response = dest_socket.recv(4096)
+                    response = dest_socket.recv(BUF_SIZE)
                 except socket.timeout:
                     break
                 if not response:
                     break
                 print(f"received data of length {len(response)}")
                 client_socket.send(response)
+        print("finished sending to client")
 
 
 
