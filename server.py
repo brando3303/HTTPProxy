@@ -1,9 +1,11 @@
 # Lab 3 Proxy Server
 from pstats import SortKey
+import select
 import sys
 import socket
 import struct
 import threading
+from typing import Tuple
 
 import http_parser
 
@@ -53,6 +55,8 @@ def server(port):
     try:
         while True:
             client_socket, client_address = listener.accept()
+            client_socket.settimeout(5)
+
             if DEBUG:
                 print(f"Accepted connection from {client_address}")
             thread = threading.Thread(target=worker, args=(client_socket, client_address))
@@ -88,8 +92,7 @@ def worker(client_socket, client_address):
             sockets.append(dest_socket)
 
         if header.get_method() == "CONNECT":
-            pass
-            #process_connection_request(client_socket, dest_socket, header, packet_buf)
+            process_connection_request(client_socket, dest_socket, header, packet_buf)
         else:
             process_non_connection_request(client_socket, dest_socket, header, packet_buf)
 
@@ -99,43 +102,41 @@ def worker(client_socket, client_address):
             print("\nKeyboard interrupt received. Stopping worker...")
         return
 
-
-
 def process_connection_request(client_socket, dest_socket, header, packet_buf):
-    dest  = header.get_header("Host")
+    dest = header.get_header("Host") or header.get_header("host")
     print(header.generate_header())
 
     try:
-        if ':' in dest:
-            host, port = dest.split(':')
-            port = int(port)
-        else:
-            host = dest
-            port = 80
-        
+        # Parse host and port (default to 80 if not specified)
+        host, port = get_host_port(header)
+
         if DEBUG:
             print(f"Connecting to {host}:{port}")
-        
+        # we just need to connect to dest and reply ok to client
         dest_socket.connect((host, port))
         dest_socket.settimeout(5)
-        client_socket.settimeout(5)
 
-        #send what we have so far, continue sending rest of packet if any
-        dest_socket.send(header.generate_header().encode() + packet_buf)
-        while True:
-            data = client_socket.recv(BUF_SIZE)
-            if not data:
-                break
-            dest_socket.send(data)
-        
-        # Now receive response from destination and send back to client
-        while True:
-            response = dest_socket.recv(BUF_SIZE)
-            if not response:
-                break
-            client_socket.send(response)
-        
+        ok_response = "HTTP/1.0 200 Connection Established\r\n\r\n"
+        client_socket.send(ok_response.encode())
 
+        # Now just forward data between client and dest
+        while True:
+            client_readable, _, _ = select.select([client_socket], [], [], .0001)
+            server_readable, _, _ = select.select([dest_socket], [], [], .0001)
+            if client_readable:
+                data = client_socket.recv(BUF_SIZE)
+                if data == b"":
+                    return
+                dest_socket.send(data)
+            if server_readable:
+                data = dest_socket.recv(BUF_SIZE)
+                if data == b"":
+                    return
+                client_socket.send(data)
+
+        print("finished sending to client")
+
+        
     except Exception as e:
         if DEBUG:
             print(f"Error connecting to {dest}: {e}")
@@ -145,19 +146,15 @@ def process_connection_request(client_socket, dest_socket, header, packet_buf):
 
     return
 
+
+
 def process_non_connection_request(client_socket, dest_socket, header, packet_buf):
-    dest = header.get_header("Host")
+    dest = header.get_header("Host") or header.get_header("host")
     print(header.generate_header())
 
     try:
         # Parse host and port (default to 80 if not specified)
-        if ':' in dest:
-            host, port = dest.split(':')
-            port = int(port)
-        else:
-            host = dest
-            port = 80
-        
+        host, port = get_host_port(header)
         if DEBUG:
             print(f"Connecting to {host}:{port}")
         
@@ -208,10 +205,10 @@ def process_non_connection_request(client_socket, dest_socket, header, packet_bu
         # send header + initial recieved payload to client
         client_socket.send(resp_header.generate_header().encode())
         client_socket.send(resp_buf)
-        print(f"sending payload to client {len(resp_buf)} bytes out of {content_length if content_length else 'unknown'}")
 
         # continue sending rest of payload if any
         content_length = resp_header.get_header("Content-Length")
+        print(f"sending payload to client {len(resp_buf)} bytes out of {content_length if content_length else 'unknown'}")
         if content_length and len(resp_buf) < int(content_length) or resp_header.get_header("Transfer-Encoding"):
             while True:
                 print("getting payload from dest")
@@ -236,6 +233,16 @@ def process_non_connection_request(client_socket, dest_socket, header, packet_bu
         client_socket.close()
 
     return
+
+def get_host_port(header: http_parser.HTTPHeader) -> Tuple[str, int]:
+    dest = header.get_header("Host") or header.get_header("host")
+    if ':' in dest:
+        host, port = dest.split(':')
+        port = int(port)
+    else:
+        host = dest
+        port = 80
+    return host, port
 
 def usage(name):
     print(f"Usage: {name} port")
