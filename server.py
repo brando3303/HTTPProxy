@@ -171,16 +171,19 @@ def process_connection_request(client_socket, dest_socket, header):
 
         # Now just forward data between client and dest
         while True:
-            client_readable, _, _ = select.select([client_socket], [], [], .0001)
-            server_readable, _, _ = select.select([dest_socket], [], [], .0001)
-            if client_readable:
+            has_data, _, _ = select.select([client_socket, dest_socket], [], [], .0001)
+            if client_socket in has_data:
                 data = client_socket.recv(BUF_SIZE)
                 if data == b"":
+                    client_socket.close()
+                    dest_socket.close()
                     break
                 dest_socket.send(data)
-            if server_readable:
+            if dest_socket in has_data:
                 data = dest_socket.recv(BUF_SIZE)
                 if data == b"":
+                    client_socket.close()
+                    dest_socket.close()
                     break
                 client_socket.send(data)
 
