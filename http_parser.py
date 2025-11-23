@@ -14,7 +14,7 @@ class HTTPHeader:
     Attributes:
         method: HTTP method (GET, POST, etc.) - for requests
         path: Request path/URI - for requests
-        version: HTTP version (e.g., "HTTP/1.1")
+        version: HTTP version (e.g., "HTTP/1.0")
         status_code: HTTP status code - for responses
         status_message: HTTP status message - for responses
         headers: Dictionary of header fields
@@ -30,7 +30,7 @@ class HTTPHeader:
         """
         self.method: Optional[str] = None
         self.path: Optional[str] = None
-        self.version: str = "HTTP/1.1"
+        self.version: str = "HTTP/1.0"
         self.status_code: Optional[int] = None
         self.status_message: Optional[str] = None
         self.headers: Dict[str, str] = {}
@@ -60,11 +60,11 @@ class HTTPHeader:
         # Parse the first line (request line or status line)
         first_line = lines[0].strip()
         if first_line.startswith('HTTP/'):
-            # Response: HTTP/1.1 200 OK
+            # Response: HTTP/1.0 200 OK
             self._parse_status_line(first_line)
             self.is_request = False
         else:
-            # Request: GET /path HTTP/1.1
+            # Request: GET /path HTTP/1.0
             self._parse_request_line(first_line)
             self.is_request = True
         
@@ -88,7 +88,7 @@ class HTTPHeader:
     
     def _parse_request_line(self, line: str) -> None:
         """
-        Parse HTTP request line (e.g., "GET /index.html HTTP/1.1").
+        Parse HTTP request line (e.g., "GET /index.html HTTP/1.0").
         
         Args:
             line: Request line string
@@ -103,7 +103,7 @@ class HTTPHeader:
     
     def _parse_status_line(self, line: str) -> None:
         """
-        Parse HTTP status line (e.g., "HTTP/1.1 200 OK").
+        Parse HTTP status line (e.g., "HTTP/1.0 200 OK").
         
         Args:
             line: Status line string
@@ -250,6 +250,9 @@ class HTTPHeader:
             lines.append(self.body)
         
         return '\r\n'.join(lines) + '\r\n' # check??
+    
+    def to_output(self) -> str:
+        return f">>> {self.method} {self.path}"
     
     def __str__(self) -> str:
         """String representation of the HTTP header."""
