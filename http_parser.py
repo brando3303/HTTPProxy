@@ -252,8 +252,18 @@ class HTTPHeader:
         return '\r\n'.join(lines) + '\r\n' # check??
     
     def to_output(self) -> str:
+
         return f">>> {self.method} {self.path}"
     
+    def change_path_to_relative(self) -> None:
+        """Change the request path to a relative path by removing the host."""
+        path = self.get_path()
+        if path is None:
+            return
+        s = path.find("/")
+        if s != -1:
+            self.set_path(path[s:])
+
     def __str__(self) -> str:
         """String representation of the HTTP header."""
         return self.generate_header()

@@ -113,6 +113,8 @@ def worker(client_socket, client_address):
         header = http_parser.HTTPHeader(raw_header.decode())
         header.set_header("Connection", "close")
         header.set_version("HTTP/1.0")
+        if header.get_header("Proxy-Connection"):
+            header.set_header("Proxy-Connection", "close")
 
         # Print output to console
         print(header.to_output())
@@ -216,6 +218,10 @@ def process_non_connection_request(client_socket, dest_socket, header, packet_bu
         client_socket.settimeout(5)
         
         # TODO: Forward request to destination server
+        header.change_path_to_relative()
+        header.set_header("Connection", "close")
+        header.set_version("HTTP/1.0")
+        header.set_header("Proxy-Connection", "close")
 
         #send what we have so far, continue sending rest of packet if any
         dest_socket.send(header.generate_header().encode() + packet_buf)
