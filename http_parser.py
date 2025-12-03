@@ -257,12 +257,18 @@ class HTTPHeader:
     
     def change_path_to_relative(self) -> None:
         """Change the request path to a relative path by removing the host."""
-        path = self.get_path()
-        if path is None:
+        path = self.path
+        if "://" in path:
+            path = path.split("://", 1)[1]
+
+        # Split off host
+        parts = path.split("/", 1)
+        # If there is no path, return "/"
+        if len(parts) == 1:
+            self.path = "/"
             return
-        s = path.find("/")
-        if s != -1:
-            self.set_path(path[s:])
+
+        self.path = "/" + parts[1]
 
     def __str__(self) -> str:
         """String representation of the HTTP header."""

@@ -21,6 +21,22 @@ BUF_SIZE = 1024
 sockets = []
 sockets_lock = threading.Lock()
 
+def add_socket(sock):
+    with sockets_lock:
+        sockets.append(sock)
+
+def cleanup_socket(sock):
+    with sockets_lock:
+        if sock in sockets:
+            sockets.remove(sock)
+    sock.close()
+
+def cleanup_all_sockets():
+    with sockets_lock:
+        for sock in sockets:
+            sock.close()
+        sockets.clear()
+
 def main(args):
     '''
     Checks for valid arguments and begins proxy server.
@@ -160,12 +176,8 @@ def process_connection_request(client_socket, dest_socket, header):
             error_response = "HTTP/1.0 502 Bad Gateway\r\n\r\n"
             client_socket.send(error_response.encode())
         
-            with sockets_lock:
-                sockets.remove(client_socket)
-                sockets.remove(dest_socket)
-                
-                client_socket.close()
-                dest_socket.close()
+            cleanup_socket(dest_socket)
+            cleanup_socket(client_socket)
             return
 
         ok_response = "HTTP/1.0 200 Connection Established\r\n\r\n"
@@ -197,9 +209,8 @@ def process_connection_request(client_socket, dest_socket, header):
         if DEBUG:
             print(f"Error connecting to {dest}: {e}")
     finally:
-        dest_socket.close()
-        client_socket.close()
-
+        cleanup_socket(dest_socket)
+        cleanup_socket(client_socket)
     return
 
 def process_non_connection_request(client_socket, dest_socket, header, packet_buf):
@@ -217,7 +228,6 @@ def process_non_connection_request(client_socket, dest_socket, header, packet_bu
         dest_socket.settimeout(5)
         client_socket.settimeout(5)
         
-        # TODO: Forward request to destination server
         header.change_path_to_relative()
         header.set_header("Connection", "close")
         header.set_version("HTTP/1.0")
@@ -263,11 +273,13 @@ def process_non_connection_request(client_socket, dest_socket, header, packet_bu
                 print(f"received data of length {len(response)}")
             resp_buf += response
         
-        # process client header
+        # process server response header
         raw_header = resp_buf.split(b"\r\n\r\n")[0]
         resp_buf = resp_buf.split(b"\r\n\r\n",1)[1]
         resp_header = http_parser.HTTPHeader(raw_header.decode())
         resp_header.set_version("HTTP/1.0")
+        resp_header.set_header("Connection", "close")
+        resp_header.set_header("Proxy-Connection", "close")
 
         if DEBUG:
             print(f"sending header to client {resp_header.generate_header()}")
@@ -302,8 +314,8 @@ def process_non_connection_request(client_socket, dest_socket, header, packet_bu
         if DEBUG:
             print(f"Error connecting to {dest}: {e}")
     finally:
-        dest_socket.close()
-        client_socket.close()
+        cleanup_socket(dest_socket)
+        cleanup_socket(client_socket)
 
     return
 
