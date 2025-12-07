@@ -1,0 +1,15 @@
+>>> CONNECT www.google.com:443
+>>> CONNECT www.youtube.com:443
+>>> CONNECT i.ytimg.com:443
+>>> CONNECT rr5---sn-nx57ynsr.googlevideo.com:443
+>>> CONNECT rr5---sn-nx57ynsr.googlevideo.com:443
+>>> CONNECT rr5---sn-nx57ynss.googlevideo.com:443
+>>> CONNECT rr4---sn-nx57ynze.googlevideo.com:443
+>>> CONNECT googleads.g.doubleclick.net:443
+>>> CONNECT tpc.googlesyndication.com:443
+>>> CONNECT pagead2.googlesyndication.com:443
+>>> CONNECT fonts.gstatic.com:443
+>>> CONNECT www.google.com:443
+>>> CONNECT lh4.googleusercontent.com:443
+>>> CONNECT rr4---sn-nx57ynsy.googlevideo.com:443
+>>> CONNECT www.gstatic.com:443

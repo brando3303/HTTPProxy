@@ -91,8 +91,8 @@ def server(port):
         if DEBUG:
             print("\nKeyboard interrupt received. Shutting down server...")
     finally:
-        # Cleanup TODO: close everything
         listener.close()
+        cleanup_all_sockets()
         if DEBUG:
             print("Server stopped")
 
@@ -110,21 +110,34 @@ def worker(client_socket, client_address):
         packet_buf = b""
 
         # First just get the header
+        delim = b"\r\n\r\n"
         try:
-            while packet_buf.find(b"\r\n\r\n") == -1:
+            while packet_buf.find(delim) == -1 and packet_buf.find(b"\n\n") == -1:
+                if packet_buf.find(b"\n\n") != -1:
+                    delim = b"\n\n"
                 packet_buf += client_socket.recv(BUF_SIZE)
         except TimeoutError as e:
             if DEBUG:
                 print(f"Timed out: {e}")
                 print(packet_buf.decode())
+            
+            # Cleanup socket
+            cleanup_socket(client_socket)
                 
             return
+        except ConnectionResetError as e:
+            if DEBUG:
+                print(f"Connection reset: {e}")
 
-        # process header TODO: allow other line endings
+            # Cleanup socket
+            cleanup_socket(client_socket)
+            return
 
         # Update buffer
-        packet_buf = packet_buf.split(b"\r\n\r\n", 1)
+        packet_buf = packet_buf.split(delim, 1)
         raw_header = packet_buf[0]
+        if len(packet_buf) == 1:
+            print(packet_buf[0])
         packet_buf = packet_buf[1]
         header = http_parser.HTTPHeader(raw_header.decode())
         header.set_header("Connection", "close")
@@ -153,6 +166,11 @@ def worker(client_socket, client_address):
         return
 
 def process_connection_request(client_socket, dest_socket, header):
+    '''
+    Processes a connection request by creating TCP connections with
+    client_socket and with dest_socket, and relays information between
+    the two.
+    '''
     dest = header.get_header("Host") or header.get_header("host")
     if DEBUG:
         print(header.generate_header())
@@ -214,6 +232,10 @@ def process_connection_request(client_socket, dest_socket, header):
     return
 
 def process_non_connection_request(client_socket, dest_socket, header, packet_buf):
+    '''
+    Handles a non-connection request. This method sends the request from the client to
+    dest_socket, and relays information back to client_socket.
+    '''
     dest = header.get_header("Host") or header.get_header("host")
     if DEBUG:
         print(header.generate_header())
@@ -320,6 +342,9 @@ def process_non_connection_request(client_socket, dest_socket, header, packet_bu
     return
 
 def get_host_port(header: http_parser.HTTPHeader) -> Tuple[str, int]:
+    '''
+    Returns the host and port from a given HTTP request header
+    '''
     dest = header.get_header("Host") or header.get_header("host")
     if ':' in dest:
         host, port = dest.split(':')
@@ -334,6 +359,9 @@ def get_host_port(header: http_parser.HTTPHeader) -> Tuple[str, int]:
     return host, port
 
 def usage(name):
+    '''
+    Prints out proper usage for the program
+    '''
     print(f"Usage: {name} port")
 
 if __name__ == "__main__":
